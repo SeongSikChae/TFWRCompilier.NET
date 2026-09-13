@@ -5,13 +5,13 @@ namespace TFWR.Compiler;
 /// </summary>
 public sealed class CompileOptions
 {
-    /// <summary>Input C# source file paths.</summary>
+    /// <summary>Input source file paths (<c>.cs</c> or <c>.ts</c>).</summary>
     public required IReadOnlyList<string> InputFiles { get; init; }
 
     /// <summary>Directory where emitted <c>.py</c> files are written.</summary>
     public required string OutputDirectory { get; init; }
 
-    /// <summary>Source language. Currently only <c>cs</c> is supported.</summary>
+    /// <summary>Source language: <c>cs</c> or <c>ts</c>.</summary>
     public string Language { get; init; } = "cs";
 
     /// <summary>

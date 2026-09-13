@@ -8,7 +8,7 @@ using TFWR.Compiler.Ir;
 namespace TFWR.Compiler;
 
 /// <summary>
-/// Compiles C# sources that use <c>TFWR.Api</c> into TFWR Python modules.
+/// Compiles C# or TypeScript sources that use TFWR APIs into TFWR Python modules.
 /// </summary>
 public sealed class TfwrCompiler
 {
@@ -19,17 +19,32 @@ public sealed class TfwrCompiler
     /// <returns>Compile result with diagnostics and emitted file contents.</returns>
     public static CompileResult Compile(CompileOptions options)
     {
-        var result = new CompileResult();
+        if (string.Equals(options.Language, "ts", StringComparison.OrdinalIgnoreCase))
+        {
+            return TsCompiler.Compile(options);
+        }
 
         if (!string.Equals(options.Language, "cs", StringComparison.OrdinalIgnoreCase))
         {
-            result.Diagnostics.Add(new CompileDiagnostic
+            return new CompileResult
             {
-                Severity = DiagnosticSeverity.Error,
-                Message = $"Language '{options.Language}' is not supported. Use --lang cs."
-            });
-            return result;
+                Diagnostics =
+                {
+                    new CompileDiagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Message = $"Language '{options.Language}' is not supported. Use --lang cs or --lang ts."
+                    }
+                }
+            };
         }
+
+        return CompileCs(options);
+    }
+
+    private static CompileResult CompileCs(CompileOptions options)
+    {
+        var result = new CompileResult();
 
         if (options.InputFiles.Count == 0)
         {
@@ -212,10 +227,12 @@ public sealed class TfwrCompiler
     /// <param name="emitTopLevelEntry">
     /// When <see langword="true"/>, emits entry bodies as top-level statements.
     /// </param>
+    /// <param name="language">Source language (<c>cs</c> or <c>ts</c>).</param>
     /// <returns>Compile result with diagnostics and emitted file contents.</returns>
     public static CompileResult CompileToMemory(
         IReadOnlyDictionary<string, string> sourcesByRelativePath,
-        bool emitTopLevelEntry = false)
+        bool emitTopLevelEntry = false,
+        string language = "cs")
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "tfwrc-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
@@ -240,7 +257,7 @@ public sealed class TfwrCompiler
             {
                 InputFiles = inputs,
                 OutputDirectory = outDir,
-                Language = "cs",
+                Language = language,
                 EmitTopLevelEntry = emitTopLevelEntry
             });
         }

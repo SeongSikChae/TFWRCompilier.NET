@@ -125,13 +125,16 @@ public static class Program
 
             Usage:
               tfwrc --lang cs --out <output-dir> [--toplevel] <input.cs> [input.cs ...]
+              tfwrc --lang ts --out <output-dir> [--toplevel] <input.ts> [input.ts ...]
 
             Options:
-              --lang cs       Source language (only 'cs' is supported in v1)
+              --lang cs|ts    Source language (cs = C# / Roslyn, ts = TypeScript / Node)
               --out <dir>     Output directory for generated .py modules
-              --toplevel      Emit Main/[TfwrEntry] as top-level statements (no def)
+              --toplevel      Emit Main/[TfwrEntry]/main as top-level statements (no def)
                               Useful before Unlocks.Functions is unlocked
               -h, --help      Show this help
+
+            TypeScript (--lang ts) requires Node.js 20+ and the bundled TsFrontend bridge.
             """);
     }
 }

@@ -13,7 +13,7 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<Version>1.0.1</Version>
+		<Version>1.0.2</Version>
 		<Authors>SeongSikChae</Authors>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -40,5 +40,57 @@
 			<PackagePath>\</PackagePath>
 		</None>
 	</ItemGroup>
+
+	<!-- TypeScript frontend bridge (Node + typescript). Copied beside the assembly for lang=ts. -->
+	<ItemGroup>
+		<Content Include="TsFrontend\lower.mjs">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			<Link>TsFrontend\lower.mjs</Link>
+		</Content>
+		<Content Include="TsFrontend\package.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			<Link>TsFrontend\package.json</Link>
+		</Content>
+		<Content Include="TsFrontend\package-lock.json" Condition="Exists('TsFrontend\package-lock.json')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			<Link>TsFrontend\package-lock.json</Link>
+		</Content>
+		<Content Include="TsFrontend\tfwr.d.ts" Condition="Exists('TsFrontend\tfwr.d.ts')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			<Link>TsFrontend\tfwr.d.ts</Link>
+		</Content>
+		<Content Include="..\TFWR.Api.Ts\tfwr.d.ts" Condition="!Exists('TsFrontend\tfwr.d.ts')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			<Link>TsFrontend\tfwr.d.ts</Link>
+		</Content>
+	</ItemGroup>
+
+	<Target Name="NpmCiTsFrontend" BeforeTargets="Build;Publish" Condition="Exists('TsFrontend\package.json')">
+		<Exec Command="npm ci" WorkingDirectory="TsFrontend" Condition="Exists('TsFrontend\package-lock.json')" />
+		<Exec Command="npm install" WorkingDirectory="TsFrontend" Condition="!Exists('TsFrontend\package-lock.json')" />
+	</Target>
+
+	<Target Name="CopyTsFrontendNodeModules" AfterTargets="NpmCiTsFrontend;Build" BeforeTargets="CopyFilesToOutputDirectory">
+		<ItemGroup>
+			<_TsNodeModules Include="TsFrontend\node_modules\**\*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(_TsNodeModules)"
+		      DestinationFiles="@(_TsNodeModules->'$(OutputPath)TsFrontend\node_modules\%(RecursiveDir)%(Filename)%(Extension)')"
+		      SkipUnchangedFiles="true" />
+	</Target>
+
+	<Target Name="PublishTsFrontendNodeModules" AfterTargets="Publish" Condition="Exists('TsFrontend\node_modules')">
+		<ItemGroup>
+			<_TsNodeModulesPublish Include="TsFrontend\node_modules\**\*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(_TsNodeModulesPublish)"
+		      DestinationFiles="@(_TsNodeModulesPublish->'$(PublishDir)TsFrontend\node_modules\%(RecursiveDir)%(Filename)%(Extension)')"
+		      SkipUnchangedFiles="true" />
+	</Target>
 
 </Project>

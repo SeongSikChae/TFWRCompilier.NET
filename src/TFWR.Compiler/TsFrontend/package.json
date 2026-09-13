@@ -1,0 +1,10 @@
+{
+  "name": "tfwr-ts-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript → TFWR IR JSON bridge for tfwrc",
+  "dependencies": {
+    "typescript": "^5.9.2"
+  }
+}

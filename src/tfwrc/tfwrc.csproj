@@ -9,7 +9,7 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<Version>1.0.1</Version>
+		<Version>1.0.2</Version>
 		<Authors>SeongSikChae</Authors>
 	</PropertyGroup>
 
@@ -29,6 +29,11 @@
 		<ItemGroup>
 			<ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
 			                       Condition="'%(Filename)%(Extension)' == 'TFWR.Api.dll'">
+				<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+			</ResolvedFileToPublish>
+			<!-- Keep TsFrontend bridge files outside the single-file bundle -->
+			<ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
+			                       Condition="$([System.String]::Copy('%(RelativePath)').Contains('TsFrontend'))">
 				<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 			</ResolvedFileToPublish>
 		</ItemGroup>

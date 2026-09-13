@@ -1,0 +1,11 @@
+{
+  "name": "@tfwr/api",
+  "version": "1.0.0",
+  "description": "Ambient TypeScript typings for TFWR.Api / tfwrc --lang ts",
+  "types": "tfwr.d.ts",
+  "files": [
+    "tfwr.d.ts",
+    "README.md"
+  ],
+  "license": "MIT"
+}
