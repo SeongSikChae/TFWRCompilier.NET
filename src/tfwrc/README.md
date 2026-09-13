@@ -14,6 +14,8 @@
 dotnet build src/tfwrc
 ```
 
+single-file publish 시에도 `TFWR.Api.dll`은 exe 옆에 함께 배포됩니다(Roslyn 메타데이터용). 설치 레이아웃 예: `%TFWRC_HOME%\bin\tfwrc.exe` + `%TFWRC_HOME%\bin\TFWR.Api.dll`.
+
 ## 사용법
 
 ```bash

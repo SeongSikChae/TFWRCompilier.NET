@@ -9,7 +9,7 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<Version>1.0.0</Version>
+		<Version>1.0.1</Version>
 		<Authors>SeongSikChae</Authors>
 	</PropertyGroup>
 
@@ -20,5 +20,18 @@
 		</None>
 		<None Include="README.md" />
 	</ItemGroup>
+
+	<!--
+	  Roslyn needs an on-disk TFWR.Api.dll. Keep it beside the published exe even when
+	  PublishSingleFile=true (do not bundle it into the single-file host).
+	-->
+	<Target Name="KeepTfwrApiBesideSingleFile" AfterTargets="ComputeResolvedFilesToPublishList">
+		<ItemGroup>
+			<ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
+			                       Condition="'%(Filename)%(Extension)' == 'TFWR.Api.dll'">
+				<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+			</ResolvedFileToPublish>
+		</ItemGroup>
+	</Target>
 
 </Project>

@@ -1,7 +1,7 @@
+using Basic.Reference.Assemblies;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using TFWR.Api;
 using TFWR.Compiler.Emit;
 using TFWR.Compiler.Ir;
 
@@ -115,10 +115,16 @@ public sealed class TfwrCompiler
             ? OutputKind.ConsoleApplication
             : OutputKind.DynamicallyLinkedLibrary;
 
+        var metadataRefs = GetMetadataReferences(result);
+        if (metadataRefs is null)
+        {
+            return result;
+        }
+
         var compilation = CSharpCompilation.Create(
             "TFWRUserScript",
             trees,
-            GetMetadataReferences(),
+            metadataRefs,
             new CSharpCompilationOptions(outputKind)
                 .WithNullableContextOptions(NullableContextOptions.Enable)
                 .WithOverflowChecks(false));
@@ -251,48 +257,55 @@ public sealed class TfwrCompiler
         }
     }
 
-    private static List<MetadataReference> GetMetadataReferences()
+    /// <summary>
+    /// Builds Roslyn metadata references from embedded net10.0 reference assemblies
+    /// (<c>Basic.Reference.Assemblies.Net100</c>) plus on-disk <c>TFWR.Api.dll</c>.
+    /// Avoids <see cref="System.Reflection.Assembly.Location"/> / TPA file paths, which break under single-file publish.
+    /// </summary>
+    private static List<MetadataReference>? GetMetadataReferences(CompileResult result)
     {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var refs = new List<MetadataReference>();
+        refs.AddRange(Net100.References.All);
 
-        void Add(string? path)
+        var apiPath = ResolveTfwrApiPath();
+        if (apiPath is null)
         {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path) || !set.Add(path))
+            result.Diagnostics.Add(new CompileDiagnostic
             {
-                return;
-            }
-
-            refs.Add(MetadataReference.CreateFromFile(path));
+                Severity = DiagnosticSeverity.Error,
+                Message =
+                    "TFWR.Api.dll not found. Place it next to tfwrc (see AppContext.BaseDirectory) " +
+                    "or under %TFWRC_HOME%\\bin\\TFWR.Api.dll."
+            });
+            return null;
         }
 
-        var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
-        if (!string.IsNullOrEmpty(tpa))
-        {
-            foreach (var path in tpa.Split(Path.PathSeparator))
-            {
-                Add(path);
-            }
-        }
-        else
-        {
-            var runtimeDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
-            foreach (var name in new[]
-                     {
-                         "System.Runtime.dll", "System.Collections.dll", "System.Linq.dll",
-                         "System.Console.dll", "netstandard.dll", "System.Private.CoreLib.dll"
-                     })
-            {
-                Add(Path.Combine(runtimeDir, name));
-            }
-
-            Add(typeof(object).Assembly.Location);
-            Add(typeof(Enumerable).Assembly.Location);
-            Add(typeof(List<>).Assembly.Location);
-        }
-
-        Add(typeof(Game).Assembly.Location);
+        refs.Add(MetadataReference.CreateFromFile(apiPath));
         return refs;
+    }
+
+    private static string? ResolveTfwrApiPath()
+    {
+        foreach (var candidate in EnumerateTfwrApiCandidates())
+        {
+            if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateTfwrApiCandidates()
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, "TFWR.Api.dll");
+
+        var home = Environment.GetEnvironmentVariable("TFWRC_HOME");
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            yield return Path.Combine(home, "bin", "TFWR.Api.dll");
+        }
     }
 
     private static string FindCommonRoot(List<string> files)

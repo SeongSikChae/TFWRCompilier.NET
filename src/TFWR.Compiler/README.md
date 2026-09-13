@@ -4,6 +4,8 @@
 
 Roslyn으로 C#을 파싱·분석한 뒤, TFWR IR로 낮추고 Python 텍스트를 생성합니다. CLI는 [`tfwrc`](../tfwrc/)가 이 라이브러리를 호출합니다. 게임 API 스텁은 [`TFWR.Api`](../TFWR.Api/)를 참조합니다.
 
+메타데이터 참조는 런타임 `Assembly.Location`/TPA 파일 경로가 아니라, 임베디드 net10.0 참조 어셈블리(`Basic.Reference.Assemblies.Net100`)와 디스크의 `TFWR.Api.dll`(exe 옆 또는 `%TFWRC_HOME%\bin`)로 구성합니다. single-file 배포에서도 API DLL은 exe 옆에 둡니다.
+
 ## 파이프라인
 
 ```
