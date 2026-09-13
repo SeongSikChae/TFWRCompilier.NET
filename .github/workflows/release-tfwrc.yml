@@ -53,6 +53,7 @@ jobs:
               -p:IncludeNativeLibrariesForSelfExtract=true \
               -p:DebugType=None \
               -p:DebugSymbols=false \
+              -p:GeneratePackageOnBuild=false \
               -o "$OUT"
 
             ARCHIVE="dist/tfwrc-v${VERSION}-${RID}.zip"
