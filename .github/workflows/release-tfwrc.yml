@@ -1,0 +1,92 @@
+name: Release tfwrc
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Read project version
+        id: version
+        run: |
+          VERSION=$(dotnet msbuild src/tfwrc/tfwrc.csproj -getProperty:Version | tr -d '\r')
+          if [ -z "$VERSION" ]; then
+            echo "Failed to read Version from src/tfwrc/tfwrc.csproj" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Project version: $VERSION (tag v$VERSION)"
+
+      - name: Publish self-contained binaries
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zip
+
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+
+          for RID in win-x64 linux-x64 osx-x64; do
+            OUT="publish/$RID"
+            dotnet publish src/tfwrc/tfwrc.csproj \
+              -c Release \
+              -r "$RID" \
+              --self-contained true \
+              -p:PublishSingleFile=true \
+              -p:IncludeNativeLibrariesForSelfExtract=true \
+              -p:DebugType=None \
+              -p:DebugSymbols=false \
+              -o "$OUT"
+
+            ARCHIVE="dist/tfwrc-v${VERSION}-${RID}.zip"
+            (
+              cd "$OUT"
+              zip -r "../../$ARCHIVE" .
+            )
+            echo "Created $ARCHIVE"
+          done
+
+          ls -la dist/
+
+      - name: Recreate tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Overwrite existing release/tag if present
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            git push origin ":refs/tags/$TAG"
+          fi
+          git tag -f "$TAG"
+          git push origin "refs/tags/$TAG"
+
+          gh release create "$TAG" \
+            --title "tfwrc $VERSION" \
+            --notes "Self-contained \`tfwrc\` $VERSION binaries (win-x64, linux-x64, osx-x64)." \
+            dist/tfwrc-v${VERSION}-win-x64.zip \
+            dist/tfwrc-v${VERSION}-linux-x64.zip \
+            dist/tfwrc-v${VERSION}-osx-x64.zip

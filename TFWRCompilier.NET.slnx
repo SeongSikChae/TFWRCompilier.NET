@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TFWR.Api/TFWR.Api.csproj" />
+    <Project Path="src/TFWR.Compiler/TFWR.Compiler.csproj" />
+    <Project Path="src/tfwrc/tfwrc.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TFWR.Compiler.Tests/TFWR.Compiler.Tests.csproj" />
+  </Folder>
+</Solution>
