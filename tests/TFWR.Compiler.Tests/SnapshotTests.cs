@@ -504,6 +504,109 @@ public class SnapshotTests
         AssertForbidden(py);
     }
 
+    [Fact]
+    public void GeneralFor_Continue_RunsIncrement()
+    {
+        var result = CompileSingle("ForCont.cs", """
+            using static TFWR.Api.Game;
+
+            public static class Program
+            {
+                public static void Main()
+                {
+                    int i = 0;
+                    for (; i < 3; i++)
+                    {
+                        if (i == 0)
+                        {
+                            continue;
+                        }
+                        Harvest();
+                    }
+                }
+            }
+            """);
+
+        AssertSuccess(result);
+        var py = GetModule(result, "ForCont.py");
+        // continue path must still execute i += 1 immediately before continue
+        var continueIdx = py.IndexOf("continue", StringComparison.Ordinal);
+        Assert.True(continueIdx >= 0, py);
+        var windowStart = Math.Max(0, continueIdx - 40);
+        Assert.Contains("i += 1", py.Substring(windowStart, continueIdx - windowStart + "continue".Length));
+        Assert.Contains("harvest()", py);
+        AssertForbidden(py);
+    }
+
+    [Fact]
+    public void StaticField_IsRejected()
+    {
+        var result = CompileSingle("Static.cs", """
+            using static TFWR.Api.Game;
+
+            public static class Program
+            {
+                static int Size = 12;
+
+                public static void Main()
+                {
+                    Print(Size);
+                }
+            }
+            """);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Static fields", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Overloads_AreRejected()
+    {
+        var result = CompileSingle("Over.cs", """
+            using static TFWR.Api.Game;
+
+            public static class Program
+            {
+                public static void Move(int x) { }
+                public static void Move(int x, int y) { }
+
+                public static void Main()
+                {
+                    Move(1);
+                }
+            }
+            """);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Duplicate function name", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MultipleEntryPoints_AreRejected()
+    {
+        var result = CompileSingle("Entries.cs", """
+            using static TFWR.Api.Game;
+            using TFWR.Api;
+
+            public static class Program
+            {
+                public static void Main()
+                {
+                    Harvest();
+                }
+
+                [TfwrEntry]
+                public static void Boot()
+                {
+                    Harvest();
+                }
+            }
+            """);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Multiple entry points", StringComparison.Ordinal));
+    }
+
     private static CompileResult CompileSingle(string fileName, string source) =>
         TfwrCompiler.CompileToMemory(new Dictionary<string, string> { [fileName] = source });
 

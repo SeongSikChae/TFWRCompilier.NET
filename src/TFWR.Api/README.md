@@ -2,7 +2,7 @@
 
 [The Farmer Was Replaced](https://store.steampowered.com/app/2060160/The_Farmer_Was_Replaced/) 게임 builtins을 미러링한 **컴파일 타임 전용** 스텁 라이브러리입니다.
 
-C# 농장 스크립트를 작성할 때 IntelliSense와 `dotnet build`를 쓰기 위한 API 표면을 제공하며, 실제 실행은 [TFWRCompilier.NET](https://github.com/SeongSikChae/TFWRCompilier.NET)의 `tfwrc`가 인게임 DSL(`.py`)로 번역한 뒤 게임에서 이루어집니다.
+C# 농장 스크립트를 작성할 때 IntelliSense와 `dotnet build`를 쓰기 위한 API 표면을 제공하며, 실제 실행은 [TFWRCompiler.NET](https://github.com/SeongSikChae/TFWRCompiler.NET)의 `tfwrc`가 인게임 DSL(`.py`)로 번역한 뒤 게임에서 이루어집니다.
 
 ## 역할
 

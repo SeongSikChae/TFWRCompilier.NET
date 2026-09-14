@@ -303,6 +303,127 @@ public class TsSnapshotTests
         AssertForbidden(py);
     }
 
+    [Fact]
+    public void Ternary_WithSideEffects_KeepsBranchesLocal()
+    {
+        var result = CompileSingle("TernSide.ts", """
+            import { print } from "tfwr";
+
+            export function main() {
+                let a = 0;
+                let b = 0;
+                const cond = false;
+                const x = cond ? (a = 1) : (b = 2);
+                print(x);
+                print(a);
+                print(b);
+            }
+            """);
+
+        AssertSuccess(result);
+        var py = GetModule(result, "TernSide.py");
+        // Assignments must live inside if/else, not before the condition
+        var ifIdx = py.IndexOf("if cond:", StringComparison.Ordinal);
+        Assert.True(ifIdx >= 0, py);
+        var beforeIf = py.Substring(0, ifIdx);
+        Assert.DoesNotContain("a = 1", beforeIf);
+        Assert.DoesNotContain("b = 2", beforeIf);
+        Assert.Contains("a = 1", py);
+        Assert.Contains("b = 2", py);
+        AssertForbidden(py);
+    }
+
+    [Fact]
+    public void ElseIf_WithTernaryCondition_NestsInsteadOfBrokenElif()
+    {
+        var result = CompileSingle("ElifHoist.ts", """
+            import { print } from "tfwr";
+
+            export function main() {
+                let n = 1;
+                if (n < 0) {
+                    print(0);
+                } else if (n > 0 ? true : false) {
+                    print(1);
+                } else {
+                    print(2);
+                }
+            }
+            """);
+
+        AssertSuccess(result);
+        var py = GetModule(result, "ElifHoist.py");
+        // Must not use a temp in elif condition before it is defined
+        Assert.DoesNotContain("elif _tern", py);
+        Assert.Contains("else:", py);
+        Assert.Contains("_tern", py);
+        AssertForbidden(py);
+    }
+
+    [Fact]
+    public void StaticField_IsRejected()
+    {
+        var result = CompileSingle("Static.ts", """
+            import { print } from "tfwr";
+
+            export class Program {
+                static Size = 12;
+
+                static main() {
+                    print(Program.Size);
+                }
+            }
+            """);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Static fields", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DuplicateFunctionNames_AreRejected()
+    {
+        var result = CompileSingle("Dup.ts", """
+            import { harvest } from "tfwr";
+
+            export class Helper {
+                Move() {
+                    harvest();
+                }
+            }
+
+            export function Helper_Move() {
+                harvest();
+            }
+
+            export function main() {
+                Helper_Move();
+            }
+            """);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Duplicate function name", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MultipleEntryPoints_AreRejected()
+    {
+        var result = CompileSingle("Entries.ts", """
+            import { harvest } from "tfwr";
+
+            export function main() {
+                harvest();
+            }
+
+            /** @tfwrEntry */
+            export function boot() {
+                harvest();
+            }
+            """);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics, d => d.Message.Contains("Multiple entry points", StringComparison.Ordinal));
+    }
+
     private static CompileResult CompileSingle(string fileName, string source) =>
         TfwrCompiler.CompileToMemory(new Dictionary<string, string> { [fileName] = source }, language: "ts");
 

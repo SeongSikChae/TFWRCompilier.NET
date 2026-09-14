@@ -13,11 +13,11 @@
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
-		<Version>1.0.0</Version>
+		<Version>1.0.1</Version>
 		<Authors>SeongSikChae</Authors>
-		<RepositoryUrl>https://github.com/SeongSikChae/TFWRCompilier.NET.git</RepositoryUrl>
+		<RepositoryUrl>https://github.com/SeongSikChae/TFWRCompiler.NET.git</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
-		<PackageProjectUrl>https://github.com/SeongSikChae/TFWRCompilier.NET.git</PackageProjectUrl>
+		<PackageProjectUrl>https://github.com/SeongSikChae/TFWRCompiler.NET.git</PackageProjectUrl>
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 	</PropertyGroup>

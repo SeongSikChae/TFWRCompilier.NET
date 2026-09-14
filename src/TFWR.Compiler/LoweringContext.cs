@@ -67,8 +67,8 @@ internal sealed class LoweringContext(
             {
                 var fn = new TfwrFunction { Name = "main" };
                 fn.Body.AddRange(stmts);
-                module.Functions.Add(fn);
-                module.EntryFunctionName = "main";
+                AddFunction(module, fn, root);
+                SetEntryFunction(module, "main", root);
             }
         }
 
@@ -127,6 +127,19 @@ internal sealed class LoweringContext(
             .Where(p => !p.IsStatic && p.GetMethod is not null)
             .ToList();
 
+        foreach (var staticField in symbol.GetMembers().OfType<IFieldSymbol>()
+                     .Where(f => f.IsStatic && !f.IsImplicitlyDeclared))
+        {
+            var loc = staticField.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() as SyntaxNode ?? type;
+            Error(loc, "Static fields are not supported in TFWR.");
+        }
+
+        foreach (var staticProp in symbol.GetMembers().OfType<IPropertySymbol>().Where(p => p.IsStatic))
+        {
+            var loc = staticProp.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() as SyntaxNode ?? type;
+            Error(loc, "Static properties are not supported in TFWR.");
+        }
+
         foreach (var ctor in type.Members.OfType<ConstructorDeclarationSyntax>())
         {
             LowerConstructor(symbol, ctor, module);
@@ -152,7 +165,7 @@ internal sealed class LoweringContext(
             // synthesize default ctor only when instances are meaningful
             var fn = new TfwrFunction { Name = $"{symbol.Name}_new" };
             fn.Body.Add(new ReturnStmt(BuildInstanceDict(symbol, [])));
-            module.Functions.Add(fn);
+            AddFunction(module, fn, type);
         }
 
         foreach (var method in type.Members.OfType<MethodDeclarationSyntax>())
@@ -205,7 +218,7 @@ internal sealed class LoweringContext(
 
         // Rewrite: assignments to fields without self in ctor body already use this. - handled in member access
         fn.Body.Add(new ReturnStmt(new NameExpr("self")));
-        module.Functions.Add(fn);
+        AddFunction(module, fn, ctor);
         _currentMethod = null;
     }
 
@@ -229,7 +242,7 @@ internal sealed class LoweringContext(
         }
 
         fn.Body.Add(new ReturnStmt(BuildInstanceDict(type, overrides)));
-        module.Functions.Add(fn);
+        AddFunction(module, fn, primaryParams);
     }
 
     private static DictExpr BuildInstanceDict(
@@ -368,7 +381,7 @@ internal sealed class LoweringContext(
 
         if (IsEntryPoint(symbol))
         {
-            module.EntryFunctionName = GetFunctionName(type, symbol);
+            SetEntryFunction(module, GetFunctionName(type, symbol), method);
         }
 
         var fn = new TfwrFunction { Name = GetFunctionName(type, symbol) };
@@ -387,15 +400,21 @@ internal sealed class LoweringContext(
         }
 
         fn.Body.AddRange(bodyStmts);
-        module.Functions.Add(fn);
+        AddFunction(module, fn, method);
         _currentMethod = null;
     }
 
     private void LowerProperty(INamedTypeSymbol type, PropertyDeclarationSyntax prop, TfwrModule module)
     {
         var symbol = _model.GetDeclaredSymbol(prop);
-        if (symbol is null || symbol.IsStatic)
+        if (symbol is null)
         {
+            return;
+        }
+
+        if (symbol.IsStatic)
+        {
+            Error(prop, "Static properties are not supported in TFWR.");
             return;
         }
 
@@ -440,8 +459,34 @@ internal sealed class LoweringContext(
                 }
             }
 
-            module.Functions.Add(fn);
+            AddFunction(module, fn, accessor);
         }
+    }
+
+    private void AddFunction(TfwrModule module, TfwrFunction fn, SyntaxNode? node)
+    {
+        if (module.Functions.Any(f => string.Equals(f.Name, fn.Name, StringComparison.Ordinal)))
+        {
+            Error(node,
+                $"Duplicate function name '{fn.Name}' after lowering " +
+                "(overloads and same type/method names collide). Rename or remove the duplicate.");
+            return;
+        }
+
+        module.Functions.Add(fn);
+    }
+
+    private void SetEntryFunction(TfwrModule module, string entryName, SyntaxNode? node)
+    {
+        if (module.EntryFunctionName is { } existing)
+        {
+            Error(node,
+                $"Multiple entry points are not supported " +
+                $"(already have '{existing}', also '{entryName}').");
+            return;
+        }
+
+        module.EntryFunctionName = entryName;
     }
 
     private static string GetFunctionName(INamedTypeSymbol type, IMethodSymbol method)
@@ -861,11 +906,17 @@ internal sealed class LoweringContext(
             stmts.AddRange(LowerExpressionStatement(init));
         }
 
-        var whileBody = LowerStatement(forStmt.Statement).ToList();
+        var increments = new List<TfwrStmt>();
         foreach (var incr in forStmt.Incrementors)
         {
-            whileBody.AddRange(LowerExpressionStatement(incr));
+            increments.AddRange(LowerExpressionStatement(incr));
         }
+
+        // C# continue runs the incrementor; a bare while+continue would skip it.
+        var whileBody = InsertIncrementsBeforeContinues(
+            LowerStatement(forStmt.Statement).ToList(),
+            increments);
+        whileBody.AddRange(increments);
 
         var condPrelude = new List<TfwrStmt>();
         var cond = forStmt.Condition is null
@@ -898,6 +949,68 @@ internal sealed class LoweringContext(
         }
 
         return stmts;
+    }
+
+    /// <summary>
+    /// Before each <c>continue</c> belonging to this loop, run <paramref name="increments"/>.
+    /// Nested <c>while</c>/<c>for</c> bodies are left unchanged.
+    /// </summary>
+    private static List<TfwrStmt> InsertIncrementsBeforeContinues(
+        List<TfwrStmt> body,
+        List<TfwrStmt> increments)
+    {
+        if (increments.Count == 0)
+        {
+            return body;
+        }
+
+        return body.SelectMany(s => RewriteStmtContinues(s, increments)).ToList();
+    }
+
+    private static IEnumerable<TfwrStmt> RewriteStmtContinues(TfwrStmt stmt, List<TfwrStmt> increments)
+    {
+        switch (stmt)
+        {
+            case ContinueStmt:
+                foreach (var incr in increments)
+                {
+                    yield return incr;
+                }
+
+                yield return stmt;
+                yield break;
+
+            case IfStmt ifStmt:
+            {
+                var rewritten = new IfStmt { Condition = ifStmt.Condition };
+                rewritten.ThenBody.AddRange(
+                    ifStmt.ThenBody.SelectMany(s => RewriteStmtContinues(s, increments)));
+                foreach (var (cond, elifBody) in ifStmt.Elifs)
+                {
+                    rewritten.Elifs.Add((
+                        cond,
+                        elifBody.SelectMany(s => RewriteStmtContinues(s, increments)).ToList()));
+                }
+
+                if (ifStmt.ElseBody is { } elseBody)
+                {
+                    rewritten.ElseBody = elseBody
+                        .SelectMany(s => RewriteStmtContinues(s, increments))
+                        .ToList();
+                }
+
+                yield return rewritten;
+                yield break;
+            }
+
+            case WhileStmt or ForStmt:
+                yield return stmt;
+                yield break;
+
+            default:
+                yield return stmt;
+                yield break;
+        }
     }
 
     private bool TryLowerRangeFor(ForStatementSyntax forStmt, out List<TfwrStmt> result)
@@ -1123,8 +1236,13 @@ internal sealed class LoweringContext(
         {
             if (field.IsStatic)
             {
-                EnsureImportForType(field.ContainingType);
-                return Qualify(field.ContainingType, new NameExpr($"{field.ContainingType.Name}_{field.Name}"));
+                if (IsGameApi(field.ContainingType))
+                {
+                    return LowerGameEnumMember(field);
+                }
+
+                Error(id, "Static fields are not supported in TFWR.");
+                return new LiteralExpr("None");
             }
 
             return new IndexExpr(new NameExpr("self"), new LiteralExpr($"\"{field.Name}\""));
@@ -1139,8 +1257,8 @@ internal sealed class LoweringContext(
 
             if (prop.IsStatic)
             {
-                EnsureImportForType(prop.ContainingType);
-                return Qualify(prop.ContainingType, new CallExpr(new NameExpr($"{prop.ContainingType.Name}_get_{prop.Name}"), []));
+                Error(id, "Static properties are not supported in TFWR.");
+                return new LiteralExpr("None");
             }
 
             if (IsAutoProperty(prop))
@@ -1188,8 +1306,8 @@ internal sealed class LoweringContext(
                     return LowerGameEnumMember(field);
                 }
 
-                EnsureImportForType(field.ContainingType);
-                return Qualify(field.ContainingType, new NameExpr($"{field.ContainingType!.Name}_{field.Name}"));
+                Error(member, "Static fields are not supported in TFWR.");
+                return new LiteralExpr("None");
             }
 
             return new IndexExpr(LowerExpression(member.Expression), new LiteralExpr($"\"{field.Name}\""));
@@ -1226,8 +1344,8 @@ internal sealed class LoweringContext(
 
             if (prop.IsStatic)
             {
-                EnsureImportForType(prop.ContainingType);
-                return Qualify(prop.ContainingType, new CallExpr(new NameExpr($"{prop.ContainingType!.Name}_get_{prop.Name}"), []));
+                Error(member, "Static properties are not supported in TFWR.");
+                return new LiteralExpr("None");
             }
 
             if (IsInstanceDictProperty(prop))

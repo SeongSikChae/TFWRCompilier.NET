@@ -1,4 +1,4 @@
-# TFWRCompilier.NET
+# TFWRCompiler.NET
 
 C# 또는 TypeScript로 작성한 코드를 [The Farmer Was Replaced](https://store.steampowered.com/app/2060160/The_Farmer_Was_Replaced/) 인게임 스크립트(DSL, `.py`)로 번역하는 컴파일러 솔루션입니다.
 

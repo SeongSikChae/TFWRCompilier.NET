@@ -306,6 +306,30 @@ class LoweringContext {
     return `_${prefix}${this.tempCounter}`;
   }
 
+  pushFunction(module, fn, node) {
+    if (module.functions.some((f) => f.name === fn.name)) {
+      this.error(
+        node,
+        `Duplicate function name '${fn.name}' after lowering ` +
+          "(overloads and same type/method names collide). Rename or remove the duplicate.",
+      );
+      return;
+    }
+    module.functions.push(fn);
+  }
+
+  setEntryFunction(module, entryName, node) {
+    if (module.entryFunctionName) {
+      this.error(
+        node,
+        `Multiple entry points are not supported ` +
+          `(already have '${module.entryFunctionName}', also '${entryName}').`,
+      );
+      return;
+    }
+    module.entryFunctionName = entryName;
+  }
+
   lowerSourceFile() {
     const module = {
       moduleName: this.moduleName,
@@ -376,8 +400,8 @@ class LoweringContext {
         module.topLevelStatements.push(...topLevelStmts);
       } else {
         const fn = { name: "main", parameters: [], body: topLevelStmts };
-        module.functions.push(fn);
-        module.entryFunctionName = "main";
+        this.pushFunction(module, fn, this.sourceFile);
+        this.setEntryFunction(module, "main", this.sourceFile);
       }
     }
 
@@ -502,9 +526,9 @@ class LoweringContext {
       name: p.name,
       defaultValue: p.defaultValue,
     })), body: stmts };
-    module.functions.push(fn);
+    this.pushFunction(module, fn, node);
     if (isEntry) {
-      module.entryFunctionName = name;
+      this.setEntryFunction(module, name, node);
     }
   }
 
@@ -529,6 +553,11 @@ class LoweringContext {
     const fields = [];
     for (const member of node.members) {
       if (ts.isPropertyDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
+        const isStatic = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword);
+        if (isStatic) {
+          this.error(member, "Static fields are not supported in TFWR.");
+          continue;
+        }
         fields.push(member.name.text);
       }
     }
@@ -616,11 +645,11 @@ class LoweringContext {
 
     newBody.push({ kind: "ReturnStmt", value: { kind: "NameExpr", name: "self" } });
 
-    module.functions.push({
+    this.pushFunction(module, {
       name: `${className}_new`,
       parameters: newParams,
       body: newBody.length ? newBody : [{ kind: "PassStmt" }],
-    });
+    }, ctor ?? node);
 
     for (const method of methods) {
       const methodName = method.name.text;
@@ -665,9 +694,9 @@ class LoweringContext {
         }
       }
 
-      module.functions.push({ name: fnName, parameters: params, body: stmts });
+      this.pushFunction(module, { name: fnName, parameters: params, body: stmts }, method);
       if (isEntry && !this.emitTopLevelEntry) {
-        module.entryFunctionName = fnName;
+        this.setEntryFunction(module, fnName, method);
       }
     }
 
@@ -815,44 +844,54 @@ class LoweringContext {
     this.hoist = [];
 
     const thenBody = this.lowerStatement(stmt.thenStatement);
-    let elseBody = null;
-    const elifs = [];
-
-    let elseStmt = stmt.elseStatement;
-    while (elseStmt && ts.isIfStatement(elseStmt)) {
-      this.hoist = [];
-      const cond = this.lowerExpression(elseStmt.expression);
-      const elifPre = [...this.hoist];
-      this.hoist = [];
-      const body = this.lowerStatement(elseStmt.thenStatement);
-      // if condition had hoist, wrap — for simplicity prepend assign temps into body via outer
-      if (elifPre.length) {
-        // hoist elif conditions are tricky; use nested if fallback only if needed
-        // For v1, conditions shouldn't need hoist often; if they do, prepend to a wrapper
-        elifs.push({ condition: cond, body: [...elifPre, ...body] });
-      } else {
-        elifs.push({ condition: cond, body });
-      }
-      elseStmt = elseStmt.elseStatement;
-    }
-    if (elseStmt) {
-      elseBody = this.lowerStatement(elseStmt);
-    }
-
-    this.hoist = saved;
     const ifStmt = {
       kind: "IfStmt",
       condition,
       thenBody,
-      elifs,
-      elseBody,
+      elifs: [],
+      elseBody: null,
     };
+    this.attachElseChain(ifStmt, stmt.elseStatement, ifStmt);
+
+    this.hoist = saved;
     if (pre.length) {
-      // return pre + if as multiple — caller expects single IfStmt from lowerIf
-      // Store pre in then... actually return via lowerStatement path
       this._pendingPre = pre;
     }
     return ifStmt;
+  }
+
+  /**
+   * Mirror C# AttachElseChain: plain else-if → elif; if the condition needs
+   * hoist temps, nest so preludes run before the nested condition is evaluated.
+   */
+  attachElseChain(target, elseStmt, elifOwner) {
+    while (elseStmt && ts.isIfStatement(elseStmt)) {
+      this.hoist = [];
+      const cond = this.lowerExpression(elseStmt.expression);
+      const prelude = [...this.hoist];
+      this.hoist = [];
+      const thenBody = this.lowerStatement(elseStmt.thenStatement);
+
+      if (prelude.length === 0) {
+        elifOwner.elifs.push({ condition: cond, body: thenBody });
+        elseStmt = elseStmt.elseStatement;
+        continue;
+      }
+
+      const nested = {
+        kind: "IfStmt",
+        condition: cond,
+        thenBody,
+        elifs: [],
+        elseBody: null,
+      };
+      this.attachElseChain(nested, elseStmt.elseStatement, nested);
+      target.elseBody = [...prelude, nested];
+      return;
+    }
+    if (elseStmt) {
+      target.elseBody = this.lowerStatement(elseStmt);
+    }
   }
 
   lowerWhile(stmt) {
@@ -1509,23 +1548,36 @@ class LoweringContext {
       return this.lowerExpression(node.whenTrue);
     }
     const temp = this.newTemp("tern");
+    // Condition side-effects hoist into the outer list before the if.
     const cond = this.lowerExpression(node.condition);
+
+    const thenBody = [];
+    const elseBody = [];
+    const saved = this.hoist;
+
+    this.hoist = thenBody;
     const whenTrue = this.lowerExpression(node.whenTrue);
+    thenBody.push({
+      kind: "AssignStmt",
+      target: { kind: "NameExpr", name: temp },
+      value: whenTrue,
+    });
+
+    this.hoist = elseBody;
     const whenFalse = this.lowerExpression(node.whenFalse);
+    elseBody.push({
+      kind: "AssignStmt",
+      target: { kind: "NameExpr", name: temp },
+      value: whenFalse,
+    });
+
+    this.hoist = saved;
     this.hoist.push({
       kind: "IfStmt",
       condition: cond,
-      thenBody: [{
-        kind: "AssignStmt",
-        target: { kind: "NameExpr", name: temp },
-        value: whenTrue,
-      }],
+      thenBody,
       elifs: [],
-      elseBody: [{
-        kind: "AssignStmt",
-        target: { kind: "NameExpr", name: temp },
-        value: whenFalse,
-      }],
+      elseBody,
     });
     return { kind: "NameExpr", name: temp };
   }
